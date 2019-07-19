@@ -1,6 +1,9 @@
-**Updated on: 29 MAR 2018**
+open-vm-tools 10.3.10 Release Notes
+=================================
 
-open-vm-tools | 29 MAR 2018 | Build 8068406
+**Updated on: 14 MAR 2019**
+
+open-vm-tools | 14 MAR 2019 | Build 12406962
 
 Check for additions and updates to these release notes.
 
@@ -12,21 +15,21 @@ The release notes cover the following topics:
 *   [What's New](#whatsnew)
 *   [Before You Begin](#beforeyoubegin)
 *   [Internationalization](#i18n)
-*   [Compatibility Notes](#compatibility)
+*   [End of Feature Support Notice](#endoffeaturesupport)
+*   [Guest Operating System Customization Support](#guestop)
+*   [Interoperability Matrix](#interop)
 *   [Resolved Issues](#resolvedissues)
 *   [Known Issues](#knownissues)
 
 What's New
 ----------
 
-*   **Quiesced snapshots**: Ability to exclude specific file systems from quiesced snapshots on Linux guest operating systems. This configuration can be set in the tools configuration file. For more details, see the VMware Tools [Documentation](https://docs.vmware.com/en/VMware-Tools/index.html) page.
-*   **Disable display mode setting**: A configuration option is introduced to disable normal display mode setting functionality using open-vm-tools. For more details, see [KB 53572](https://kb.vmware.com/s/article/53572).
-*   **Resolved Issues: **This release of open-vm-tools resolves few issues which are documented in the [Resolved Issues](#resolvedissues) section of this release notes.
+*   **Resolved Issues: **There are some issues that are resolved in this release of open-vm-tools which are documented in the [Resolved Issues](#resolvedissues) section of this release notes.
 
 Before You Begin
 ----------------
 
-Important note about upgrading to ESXi 5.5 Update 3b or later
+**Important note about upgrading to ESXi 5.5 Update 3b or later**
 
 Resolution on incompatibility and general guidelines: While upgrading ESXi hosts to ESXi 5.5 Update 3b or ESXi 6.0 Update 1 or later, and using older versions of Horizon View Agent, refer to the knowledge base articles:
 
@@ -37,7 +40,7 @@ Resolution on incompatibility and general guidelines: While upgrading ESXi hosts
 Internationalization
 --------------------
 
-open-vm-tools 10.2.5 is available in the following languages:
+open-vm-tools 10.3.10 is available in the following languages:
 
 *   English
 *   French
@@ -49,28 +52,55 @@ open-vm-tools 10.2.5 is available in the following languages:
 *   Simplified Chinese
 *   Traditional Chinese
 
-Compatibility Notes
--------------------
+End of Feature Support Notice
+-----------------------------
 
-*   open-vm-tools 10.2.5 is compatible with supported versions of VMware vSphere ESXi 5.5 and later, VMware Workstation 14.0 and VMware Fusion 10.0. See [VMware Compatibility Guide](http://www.vmware.com/resources/compatibility/search.php) for more information.
-*   Starting with open-vm-tools version 10.2.0, Perl script-based open-vm-tools installation for FreeBSD has been discontinued. FreeBSD systems are supported only through the open-vm-tools packages directly available from FreeBSD package repositories. FreeBSD packages for open-vm-tools 10.1.0 and later are available from FreeBSD package repositories.
+*   Support for Common Agent Framework (CAF) will be removed in the next major release of open-vm-tools.
+*   VMware Tools 10.3.5 freezes feature support for tar tools and OSPs   
+    The tar tools (linux.iso) and OSPs shipped with open-vm-tools 10.3.5 release will continue to be supported. However, releases after VMware Tools 10.3.5 will only include critical and security fixes and no new feature support in these types of open-vm-tools (tar tools and OSP's). It is recommended that customers use open-vm-tools for those operating systems that support open-vm-tools. For more information on different types of open-vm-tools, see [https://blogs.vmware.com/vsphere/2016/02/understanding-the-three-types-of-vm-tools.html](https://blogs.vmware.com/vsphere/2016/02/understanding-the-three-types-of-vm-tools.html)
 
-### Guest Operating System Customization Support
+Guest Operating System Customization Support
+--------------------------------------------
 
 The [Guest OS Customization Support Matrix](http://partnerweb.vmware.com/programs/guestOS/guest-os-customization-matrix.pdf) provides details about the guest operating systems supported for customization.
+
+Interoperability Matrix
+-----------------------
+
+The [VMware Product Interoperability Matrix](http://partnerweb.vmware.com/comp_guide2/sim/interop_matrix.php) provides details about the compatibility of current and earlier versions of VMware Products. 
 
 Resolved Issues
 ---------------
 
-*   **open-vm-tools 10.2.0 does not recognize UFS filesystem partitions**
-    
-    open-vm-tools 10.2.0 has dropped UFS from the list of known file system type. As a result, the default filesystem of Solaris and FreeBSD is not recognized. open-vm-tools Services in the GuestInfo for the virtual machine do not report these filesystems. You might not be able to monitor the disk usage of UFS filesystems with vRealize Operations or vCenter Managed Object Browser.
-    
-    This issue is resolved in this release.
-    
-*   **Information about non-existing device mounted to a file system was not reported**
-    
-    Few Linux guest operating systems might have a non-existing device mounted to a filesystem. For example /dev/root/. open-vm-tools does not report this information.
-    
-    This issue is resolved in this release.
+*   **In certain cases, quiesced snapshots on Linux guests do not include backup manifests.**
 
+    On a Linux guest, if VMware Tools 10.3.5 gets an error when notifying the ESXi host of a quiesced snapshot's backup manifest file, VMware Tools logs an error and does not notify the ESXi host of the backup manifest file on subsequent quiesced snapshots. As a result, some quiesced snapshots do not include the backup manifest file, that would otherwise be available on the ESXi host. Such snapshots are not identified as quiesced by vSphere clients.
+
+    This issue is fixed in this release.
+
+Known Issues
+------------
+
+*   **Drag functionality fails to work in Ubuntu.**
+    
+    Drag functionality fails to work in Ubuntu 16.04.4 32-bit virtual machine installed using easy install. Also, failure of copy and paste functionality is observed in the same system.
+    
+    Workaround:
+    
+    *   Add the modprobe.blacklist=vmwgfx linux kernel boot option.
+    *   To gain access to larger resolutions, remove svga.guestBackedPrimaryAware = "TRUE" option from the VMX file.
+
+*   **Shared Folders mount is unavailable on Linux VM.**
+    
+    If the **Shared Folders** feature is enabled on a Linux VM while it is powered off, shared folders mount is not available on restart.
+    
+    Workaround:
+    
+    If the VM is powered on, disable and enable the **Shared Folders** feature from the interface.
+    
+    For resolving the issue permanently, edit **/etc/fstab** and add an entry to mount the Shared Folders automatically on boot.
+    
+    For example, add the line:
+    
+    vmhgfs-fuse   /mnt/hgfs    fuse    defaults,allow\_other    0    0
+    

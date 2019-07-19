@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2014-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 2014-2019 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -139,7 +139,9 @@ static int ReadInterfaceDetailsNormal(const struct intf_entry *entry,
                                       void *arg);
 static int ReadInterfaceDetailsLowPriority(const struct intf_entry *entry,
                                            void *arg);
-static Bool RecordRoutingInfo(NicInfoV3 *nicInfo);
+static Bool RecordRoutingInfo(unsigned int maxIPv4Routes,
+                              unsigned int maxIPv6Routes,
+                              NicInfoV3 *nicInfo);
 
 #if !defined(__FreeBSD__) && !defined(__APPLE__) && !defined(USERWORLD)
 typedef struct GuestInfoIpPriority {
@@ -152,7 +154,9 @@ static int GuestInfoGetIntf(const struct intf_entry *entry, void *arg);
 
 #endif
 
-static Bool RecordRoutingInfo(NicInfoV3 *nicInfo);
+static Bool RecordRoutingInfo(unsigned int maxIPv4Routes,
+                              unsigned int maxIPv6Routes,
+                              NicInfoV3 *nicInfo);
 
 static char *ValidateConvertAddress(const struct sockaddr *addr);
 
@@ -273,6 +277,22 @@ GuestInfoGetInterface(struct ifaddrs *ifaddrs,
 
       if (sll != NULL && sll->sll_family == AF_PACKET) {
          char macAddress[NICINFO_MAC_LEN];
+
+         /*
+          * PR 2193804:
+          * On ESXi, AF_PACKET family is reported for vmk* interfaces only
+          * and its ifa_flags is reported as 0. No AF_PACKET family ifaddrs
+          * is reported for loopback interface.
+          */
+#if !defined(USERWORLD)
+         /*
+          * Ignore loopback and downed devices.
+          */
+         if (!(pkt->ifa_flags & IFF_UP) || pkt->ifa_flags & IFF_LOOPBACK) {
+            continue;
+         }
+#endif
+
          Str_Sprintf(macAddress, sizeof macAddress,
                      "%02x:%02x:%02x:%02x:%02x:%02x",
                      sll->sll_addr[0], sll->sll_addr[1], sll->sll_addr[2],
@@ -297,6 +317,8 @@ GuestInfoGetInterface(struct ifaddrs *ifaddrs,
                unsigned nBits = 0;
                /*
                 * Ignore any loopback addresses.
+                * A loopback address would indicate a misconfiguration, since
+                * this is not a loopback device (we checked for that above).
                 */
                if (family == AF_INET) {
                   struct sockaddr_in *sin = (struct sockaddr_in *)sa;
@@ -336,19 +358,26 @@ GuestInfoGetInterface(struct ifaddrs *ifaddrs,
  ******************************************************************************
  * GuestInfoGetNicInfo --                                                */ /**
  *
+ * @param[in]  maxIPv4Routes  Max IPv4 routes to gather.
+ * @param[in]  maxIPv6Routes  Max IPv6 routes to gather.
+ * @param[out] nicInfo        NicInfoV3 container.
+ *
  * @copydoc GuestInfo_GetNicInfo
  *
  ******************************************************************************
  */
 
-Bool GuestInfoGetNicInfo(NicInfoV3 *nicInfo) // OUT
+Bool
+GuestInfoGetNicInfo(unsigned int maxIPv4Routes,
+                    unsigned int maxIPv6Routes,
+                    NicInfoV3 *nicInfo)
 {
 #ifndef NO_DNET
    intf_t *intf;
 
    /* Get a handle to read the network interface configuration details. */
    if ((intf = intf_open()) == NULL) {
-      g_debug("Error, failed NULL result from intf_open()\n");
+      g_warning("%s: intf_open() failed\n", __FUNCTION__);
       return FALSE;
    }
 
@@ -374,7 +403,8 @@ Bool GuestInfoGetNicInfo(NicInfoV3 *nicInfo) // OUT
    }
 #endif
 
-   if (!RecordRoutingInfo(nicInfo)) {
+   if ((maxIPv4Routes > 0 || maxIPv6Routes > 0) &&
+       !RecordRoutingInfo(maxIPv4Routes, maxIPv6Routes, nicInfo)) {
       return FALSE;
    }
 
@@ -402,13 +432,16 @@ Bool GuestInfoGetNicInfo(NicInfoV3 *nicInfo) // OUT
    }
 #endif
 
-   if (!RecordRoutingInfo(nicInfo)) {
+   if ((maxIPv4Routes > 0 || maxIPv6Routes > 0) &&
+       !RecordRoutingInfo(maxIPv4Routes, maxIPv6Routes, nicInfo)) {
       return FALSE;
    }
 
    return TRUE;
 #else
-   RecordRoutingInfo(nicInfo);
+   (void)maxIPv4Routes;
+   (void)maxIPv6Routes;
+   (void)nicInfo;
 
    return FALSE;
 #endif
@@ -451,7 +484,15 @@ GuestInfoGetPrimaryIP(void)
     * the first non-loopback, internet interface in the interface list.
     */
    for (curr = ifaces; curr != NULL; curr = curr->ifa_next) {
-      int currFamily = ((struct sockaddr_storage *)curr->ifa_addr)->ss_family;
+      int currFamily;
+
+      /*
+       * Some interfaces ("tun") have no ifa_addr, so ignore them.
+       */
+      if (NULL == curr->ifa_addr) {
+         continue;
+      }
+      currFamily = ((struct sockaddr_storage *)curr->ifa_addr)->ss_family;
 
       if (!(curr->ifa_flags & IFF_UP) || curr->ifa_flags & IFF_LOOPBACK) {
          continue;
@@ -485,6 +526,7 @@ GuestInfoGetPrimaryIP(void)
 }
 
 #else
+
 #ifndef NO_DNET
 
 char *
@@ -493,20 +535,24 @@ GuestInfoGetPrimaryIP(void)
    GuestInfoIpPriority ipp;
    intf_t *intf = intf_open();
 
-   if (intf != NULL) {
-      ipp.ipstr = NULL;
-      for (ipp.priority = NICINFO_PRIORITY_PRIMARY;
-          ipp.priority < NICINFO_PRIORITY_MAX;
-          ipp.priority++){
-         intf_loop(intf, GuestInfoGetIntf, &ipp);
-         if (ipp.ipstr != NULL) {
-            break;
-         }
-      }
-      intf_close(intf);
+   if (NULL == intf) {
+      g_warning("%s: intf_open() failed\n", __FUNCTION__);
+      return NULL;
    }
 
-   g_debug("%s: returning '%s'", __FUNCTION__, ipp.ipstr);
+   ipp.ipstr = NULL;
+   for (ipp.priority = NICINFO_PRIORITY_PRIMARY;
+       ipp.priority < NICINFO_PRIORITY_MAX;
+       ipp.priority++){
+      intf_loop(intf, GuestInfoGetIntf, &ipp);
+      if (ipp.ipstr != NULL) {
+         break;
+      }
+   }
+   intf_close(intf);
+
+   g_debug("%s: returning '%s'",
+           __FUNCTION__, ipp.ipstr ? ipp.ipstr : "<null>");
 
    return ipp.ipstr;
 }
@@ -913,7 +959,8 @@ RecordResolverNS(DnsConfigInfo *dnsConfigInfo) // IN
  * @brief Query the IPv4 routing subsystem and pack up contents
  * (struct rtentry) into InetCidrRouteEntries.
  *
- * @param[out] nicInfo  NicInfoV3 container.
+ * @param[in]  maxRoutes   Max routes to gather.
+ * @param[out] nicInfo     NicInfoV3 container.
  *
  * @note Do not call this routine without first populating @a nicInfo 's NIC
  * list.
@@ -925,13 +972,16 @@ RecordResolverNS(DnsConfigInfo *dnsConfigInfo) // IN
  */
 
 static Bool
-RecordRoutingInfoIPv4(NicInfoV3 *nicInfo)
+RecordRoutingInfoIPv4(unsigned int maxRoutes,
+                      NicInfoV3 *nicInfo)
 {
    GPtrArray *routes = NULL;
    guint i;
    Bool ret = FALSE;
 
-   if ((routes = SlashProcNet_GetRoute()) == NULL) {
+   ASSERT(maxRoutes > 0);
+
+   if ((routes = SlashProcNet_GetRoute(maxRoutes, RTF_UP)) == NULL) {
       return FALSE;
    }
 
@@ -952,8 +1002,7 @@ RecordRoutingInfoIPv4(NicInfoV3 *nicInfo)
 
       rtentry = g_ptr_array_index(routes, i);
 
-      if ((rtentry->rt_flags & RTF_UP) == 0 ||
-          !GuestInfoGetNicInfoIfIndex(nicInfo,
+      if (!GuestInfoGetNicInfoIfIndex(nicInfo,
                                       if_nametoindex(rtentry->rt_dev),
                                       &ifIndex)) {
          continue;
@@ -1002,7 +1051,8 @@ RecordRoutingInfoIPv4(NicInfoV3 *nicInfo)
  * @brief Query the IPv6 routing subsystem and pack up contents
  * (struct in6_rtmsg) into InetCidrRouteEntries.
  *
- * @param[out] nicInfo  NicInfoV3 container.
+ * @param[in]  maxRoutes   Max routes to gather.
+ * @param[out] nicInfo     NicInfoV3 container.
  *
  * @note Do not call this routine without first populating @a nicInfo 's NIC
  * list.
@@ -1014,13 +1064,25 @@ RecordRoutingInfoIPv4(NicInfoV3 *nicInfo)
  */
 
 static Bool
-RecordRoutingInfoIPv6(NicInfoV3 *nicInfo)
+RecordRoutingInfoIPv6(unsigned int maxRoutes,
+                      NicInfoV3 *nicInfo)
 {
    GPtrArray *routes = NULL;
    guint i;
    Bool ret = FALSE;
 
-   if ((routes = SlashProcNet_GetRoute6()) == NULL) {
+   ASSERT(maxRoutes > 0);
+
+   /*
+    * Reading large number of ipv6 routes in pathToNetRoute6 could
+    * result in performance issue because:
+    *  1. IPv6 route table is not efficient natively compared to ipv4
+    *     because of its implementation.
+    *  2. The glib I/O channel can aggravate the performace.
+    * Considering bug 605821/2064541, we try to read the first maxRoutes
+    * lines of pathToNetRoute6 with route flag RTF_UP set.
+    */
+   if ((routes = SlashProcNet_GetRoute6(maxRoutes, RTF_UP)) == NULL) {
       return FALSE;
    }
 
@@ -1040,8 +1102,7 @@ RecordRoutingInfoIPv6(NicInfoV3 *nicInfo)
 
       in6_rtmsg = g_ptr_array_index(routes, i);
 
-      if ((in6_rtmsg->rtmsg_flags & RTF_UP) == 0 ||
-          !GuestInfoGetNicInfoIfIndex(nicInfo, in6_rtmsg->rtmsg_ifindex,
+      if (!GuestInfoGetNicInfoIfIndex(nicInfo, in6_rtmsg->rtmsg_ifindex,
                                       &ifIndex)) {
          continue;
       }
@@ -1090,7 +1151,11 @@ RecordRoutingInfoIPv6(NicInfoV3 *nicInfo)
  * @brief Query the routing subsystem and pack up contents into
  * InetCidrRouteEntries when either of IPv4 or IPV6 is configured.
  *
- * @param[out] nicInfo  NicInfoV3 container.
+ * @param[in]  maxIPv4Routes  Max IPv4 routes to gather.
+                              Set 0 to disable gathering.
+ * @param[in]  maxIPv6Routes  Max IPv6 routes to gather.
+                              Set 0 to disable gathering.
+ * @param[out] nicInfo        NicInfoV3 container.
  *
  * @note Do not call this routine without first populating @a nicInfo 's NIC
  * list.
@@ -1103,19 +1168,36 @@ RecordRoutingInfoIPv6(NicInfoV3 *nicInfo)
  */
 
 static Bool
-RecordRoutingInfo(NicInfoV3 *nicInfo)
+RecordRoutingInfo(unsigned int maxIPv4Routes,
+                  unsigned int maxIPv6Routes,
+                  NicInfoV3 *nicInfo)
 {
-   Bool retIPv4 = TRUE;
-   Bool retIPv6 = TRUE;
+   Bool retIPv4 = FALSE;
+   Bool retIPv6 = FALSE;
 
-   if (File_Exists("/proc/net/route") && !RecordRoutingInfoIPv4(nicInfo)) {
-      g_warning("%s: Unable to collect IPv4 routing table.\n", __func__);
-      retIPv4 = FALSE;
+   ASSERT(maxIPv4Routes > 0 || maxIPv6Routes > 0);
+
+   /*
+    * We gather IPv4 routes first, then IPv6. This means IPv4 routes are more
+    * prioritized than IPv6. When there's more than NICINFO_MAX_ROUTES IPv4
+    * routes in system, the IPv6 routes will be ignored. A more equitable
+    * design might be getting max IPv4 and IPv6 routes first, and then pick
+    * out the head NICINFO_MAX_ROUTES/2 of each route list.
+    */
+   if (maxIPv4Routes > 0) {
+      if (RecordRoutingInfoIPv4(maxIPv4Routes, nicInfo)) {
+         retIPv4 = TRUE;
+      } else {
+         g_warning("%s: Unable to collect IPv4 routing table.\n", __func__);
+      }
    }
 
-   if (File_Exists("/proc/net/ipv6_route") && !RecordRoutingInfoIPv6(nicInfo)) {
-      g_warning("%s: Unable to collect IPv6 routing table.\n", __func__);
-      retIPv6 = FALSE;
+   if (maxIPv6Routes > 0 && nicInfo->routes.routes_len < NICINFO_MAX_ROUTES) {
+      if (RecordRoutingInfoIPv6(maxIPv6Routes, nicInfo)) {
+         retIPv6 = TRUE;
+      } else {
+         g_warning("%s: Unable to collect IPv6 routing table.\n", __func__);
+      }
    }
 
    return (retIPv4 || retIPv6);
@@ -1123,7 +1205,9 @@ RecordRoutingInfo(NicInfoV3 *nicInfo)
 
 #else                                           // ifdef USE_SLASH_PROC
 static Bool
-RecordRoutingInfo(NicInfoV3 *nicInfo)
+RecordRoutingInfo(unsigned int maxIPv4Routes,
+                  unsigned int maxIPv6Routes,
+                  NicInfoV3 *nicInfo)
 {
    return TRUE;
 }

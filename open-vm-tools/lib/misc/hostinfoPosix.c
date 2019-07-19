@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998-2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998-2019 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -35,6 +35,7 @@
 #include <sys/time.h>
 #include <pwd.h>
 #include <pthread.h>
+#include <time.h>
 #include <sys/resource.h>
 #if defined(sun)
 #include <sys/systeminfo.h>
@@ -100,7 +101,6 @@
 #include "hostType.h"
 #include "hostinfo.h"
 #include "hostinfoInt.h"
-#include "safetime.h"
 #include "str.h"
 #include "err.h"
 #include "msg.h"
@@ -635,16 +635,18 @@ HostinfoESX(struct utsname *buf)  // IN:
    char osNameFull[MAX_OS_FULLNAME_LEN];
 
    /* The most recent osName always goes here. */
-   Str_Strcpy(osName, "vmkernel65", sizeof osName);
+   Str_Strcpy(osName, STR_OS_VMKERNEL "7", sizeof osName);
 
    /* Handle any special cases */
    if ((buf->release[0] <= '4') && (buf->release[1] == '.')) {
-      Str_Strcpy(osName, "vmkernel", sizeof osName);
+      Str_Strcpy(osName, STR_OS_VMKERNEL, sizeof osName);
    } else if ((buf->release[0] == '5') && (buf->release[1] == '.')) {
-      Str_Strcpy(osName, "vmkernel5", sizeof osName);
+      Str_Strcpy(osName, STR_OS_VMKERNEL "5", sizeof osName);
    } else if ((buf->release[0] >= '6') && (buf->release[1] == '.')) {
       if (buf->release[2] < '5') {
-         Str_Strcpy(osName, "vmkernel6", sizeof osName);
+         Str_Strcpy(osName, STR_OS_VMKERNEL "6", sizeof osName);
+      } else {
+         Str_Strcpy(osName, STR_OS_VMKERNEL "65", sizeof osName);
       }
    }
 
@@ -758,7 +760,7 @@ HostinfoGetOSShortName(char *distro,         // IN: full distro name
          amazonMajor = 2;
       }
 
-      Str_Sprintf(distroShort, distroShortSize, "%s%d", STR_OS_AMAZON,
+      Str_Sprintf(distroShort, distroShortSize, "%s%d", STR_OS_AMAZON_LINUX,
                   amazonMajor);
    } else if (strstr(distroLower, "annvix")) {
       Str_Strcpy(distroShort, STR_OS_ANNVIX, distroShortSize);
@@ -788,11 +790,11 @@ HostinfoGetOSShortName(char *distro,         // IN: full distro name
    } else if (strstr(distroLower, "cobalt")) {
       Str_Strcpy(distroShort, STR_OS_COBALT, distroShortSize);
    } else if (StrUtil_StartsWith(distroLower, "centos")) {
-      if (strstr(distroLower, "6.")) {
+      if (strstr(distroLower, " 6.")) {
          Str_Strcpy(distroShort, STR_OS_CENTOS6, distroShortSize);
-      } else if (strstr(distroLower, "7.")) {
+      } else if (strstr(distroLower, " 7.")) {
          Str_Strcpy(distroShort, STR_OS_CENTOS7, distroShortSize);
-      } else if (strstr(distroLower, "8.")) {
+      } else if (strstr(distroLower, " 8.")) {
          Str_Strcpy(distroShort, STR_OS_CENTOS8, distroShortSize);
       } else {
          Str_Strcpy(distroShort, STR_OS_CENTOS, distroShortSize);

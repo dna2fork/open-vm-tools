@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2012-2018 VMware, Inc. All rights reserved.
+ * Copyright (C) 2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -16,27 +16,21 @@
  *
  *********************************************************/
 
-/*
- * ioplGet.h --
+/**
+ * @file fakeMouseWayland.h
  *
- *   A utility function to retrieve the IOPL level of the current thread
- *   Compiles on x86, x64 of Linux and Windows
+ *    Implement the methods that simulates the mouse motion.
+ *
  */
 
-#ifndef _IOPL_GET_H_
-#define _IOPL_GET_H_
+#ifndef __FAKE_MOUSE_WAYLAND_H__
+#define __FAKE_MOUSE_WAYLAND_H__
 
-#include "x86_basic_defs.h"
-#include "vm_basic_asm.h"
+bool FakeMouse_Init(int fd, int width, int height);
+bool FakeMouse_IsInit();
+bool FakeMouse_Update(int width, int height);
+void FakeMouse_Destory();
+bool FakeMouse_Move(int x, int y);
+bool FakeMouse_Click(bool down);
 
-#if defined(__cplusplus)
-extern "C" {
-#endif
-
-#define Iopl_Get() ((GetCallerEFlags() >> EFLAGS_IOPL_SHIFT) & 0x3)
-
-#if defined(__cplusplus)
-}  // extern "C"
-#endif
-
-#endif
+#endif // __FAKE_MOUSE_WAYLAND_H__

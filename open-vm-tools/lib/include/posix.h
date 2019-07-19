@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2008-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 2008-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -35,6 +35,7 @@
 #include "unicodeTypes.h"
 #include "unicodeBase.h"
 #include "codeset.h"
+#include "err.h"
 
 #if defined(__cplusplus)
 extern "C" {
@@ -125,14 +126,7 @@ char *Posix_MkTemp(const char *pathName);
  *-----------------------------------------------------------------------------
  */
 
-static INLINE void
-Posix_Free(void *p)  // IN
-{
-   int err = errno;
-   free(p);
-   errno = err;
-}
-
+#define Posix_Free(p) WITH_ERRNO_FREE(p)
 
 #if !defined(_WIN32)
 /*
@@ -189,6 +183,7 @@ int Posix_Getpwnam_r(const char *name, struct passwd *pw,
 int Posix_Getpwuid_r(uid_t uid, struct passwd *pw,
                      char *buf, size_t size, struct passwd **ppw);
 struct passwd *Posix_Getpwent(void);
+void Posix_Endpwent(void);
 struct group *Posix_Getgrnam(const char *name);
 int Posix_Getgrnam_r(const char *name, struct group *gr,
                  char *buf, size_t size, struct group **pgr);

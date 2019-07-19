@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 1998-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 1998-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -91,7 +91,7 @@ VM_EMBED_VERSION(VMTOOLSD_VERSION_STRING);
 #if defined(_WIN32)
 #define GUESTINFO_DEFAULT_IFACE_EXCLUDES "vEthernet*"
 #else
-#define GUESTINFO_DEFAULT_IFACE_EXCLUDES "docker*,veth*"
+#define GUESTINFO_DEFAULT_IFACE_EXCLUDES "docker*,veth*,virbr*"
 #endif
 
 /*
@@ -481,6 +481,10 @@ GuestInfoGather(gpointer data)
    ToolsAppCtx *ctx = data;
    Bool primaryChanged;
    Bool lowPriorityChanged;
+   int maxIPv4RoutesToGather;
+   int maxIPv6RoutesToGather;
+   gchar *osNameOverride;
+   gchar *osNameFullOverride;
 
    g_debug("Entered guest info gather.\n");
 
@@ -496,26 +500,67 @@ GuestInfoGather(gpointer data)
       g_warning("Failed to update VMDB with tools version.\n");
    }
 
-   /* Gather all the relevant guest information. */
-   osString = Hostinfo_GetOSName();
-   if (osString == NULL) {
-      g_warning("Failed to get OS info.\n");
-   } else {
-      if (!GuestInfoUpdateVmdb(ctx, INFO_OS_NAME_FULL, osString, 0)) {
-         g_warning("Failed to update VMDB\n");
-      }
+   /* Check for manual override of guest information in the config file */
+   osNameOverride = VMTools_ConfigGetString(ctx->config,
+                                            CONFGROUPNAME_GUESTOSINFO,
+                                            CONFNAME_GUESTOSINFO_SHORTNAME,
+                                            NULL);
+   osNameFullOverride = VMTools_ConfigGetString(ctx->config,
+                                                CONFGROUPNAME_GUESTOSINFO,
+                                                CONFNAME_GUESTOSINFO_LONGNAME,
+                                                NULL);
+   /* If only the OS Full Name is provided, continue as normal, but emit
+    * warning. */
+   if (osNameOverride == NULL && osNameFullOverride != NULL) {
+      g_warning("Ignoring " CONFNAME_GUESTOSINFO_LONGNAME " override.\n");
+      g_warning("To use the GOS name override, "
+                CONFNAME_GUESTOSINFO_SHORTNAME " must be present in the "
+                "tools.conf file.\n");
+      g_free(osNameFullOverride);
    }
-   free(osString);
 
-   osString = Hostinfo_GetOSGuestString();
-   if (osString == NULL) {
-      g_warning("Failed to get OS info.\n");
+   /* Only use override if at least the short OS name is provided */
+   if (osNameOverride == NULL) {
+      /* Gather all the relevant guest information. */
+      osString = Hostinfo_GetOSName();
+      if (osString == NULL) {
+         g_warning("Failed to get OS info.\n");
+      } else {
+         if (!GuestInfoUpdateVmdb(ctx, INFO_OS_NAME_FULL, osString, 0)) {
+            g_warning("Failed to update VMDB\n");
+         }
+      }
+      free(osString);
+
+      osString = Hostinfo_GetOSGuestString();
+      if (osString == NULL) {
+         g_warning("Failed to get OS info.\n");
+      } else {
+         if (!GuestInfoUpdateVmdb(ctx, INFO_OS_NAME, osString, 0)) {
+            g_warning("Failed to update VMDB\n");
+         }
+      }
+      free(osString);
    } else {
-      if (!GuestInfoUpdateVmdb(ctx, INFO_OS_NAME, osString, 0)) {
+      /* Use osName and osNameFull provided in config file */
+      if (osNameFullOverride == NULL) {
+         g_warning(CONFNAME_GUESTOSINFO_LONGNAME " was not set in "
+                   "tools.conf, using empty string.\n");
+      }
+      if (!GuestInfoUpdateVmdb(ctx,
+                               INFO_OS_NAME_FULL,
+                               (osNameFullOverride == NULL) ? "" : osNameFullOverride,
+                               0)) {
          g_warning("Failed to update VMDB\n");
       }
+      g_free(osNameFullOverride);
+
+      if (!GuestInfoUpdateVmdb(ctx, INFO_OS_NAME, osNameOverride, 0)) {
+         g_warning("Failed to update VMDB\n");
+      }
+      g_free(osNameOverride);
+      g_debug("Using values in tools.conf to override OS Name.\n");
    }
-   free(osString);
 
 #if !defined(USERWORLD)
    disableQueryDiskInfo =
@@ -548,7 +593,42 @@ GuestInfoGather(gpointer data)
    lowPriorityChanged = GuestInfoResetNicLowPriorityList(ctx);
    GuestInfoResetNicExcludeList(ctx);
 
-   if (!GuestInfo_GetNicInfo(&nicInfo)) {
+   /*
+    * Check the config registry for max IPv4/6 routes to gather
+    */
+   maxIPv4RoutesToGather =
+         VMTools_ConfigGetInteger(ctx->config,
+                                  CONFGROUPNAME_GUESTINFO,
+                                  CONFNAME_GUESTINFO_MAXIPV4ROUTES,
+                                  NICINFO_MAX_ROUTES);
+   if (maxIPv4RoutesToGather < 0 ||
+       maxIPv4RoutesToGather > NICINFO_MAX_ROUTES) {
+      g_warning("Invalid %s.%s value: %d. Using default %u.\n",
+                CONFGROUPNAME_GUESTINFO,
+                CONFNAME_GUESTINFO_MAXIPV4ROUTES,
+                maxIPv4RoutesToGather,
+                NICINFO_MAX_ROUTES);
+      maxIPv4RoutesToGather = NICINFO_MAX_ROUTES;
+   }
+
+   maxIPv6RoutesToGather =
+         VMTools_ConfigGetInteger(ctx->config,
+                                  CONFGROUPNAME_GUESTINFO,
+                                  CONFNAME_GUESTINFO_MAXIPV6ROUTES,
+                                  NICINFO_MAX_ROUTES);
+   if (maxIPv6RoutesToGather < 0 ||
+       maxIPv6RoutesToGather > NICINFO_MAX_ROUTES) {
+      g_warning("Invalid %s.%s value: %d. Using default %u.\n",
+                CONFGROUPNAME_GUESTINFO,
+                CONFNAME_GUESTINFO_MAXIPV6ROUTES,
+                maxIPv6RoutesToGather,
+                NICINFO_MAX_ROUTES);
+      maxIPv6RoutesToGather = NICINFO_MAX_ROUTES;
+   }
+
+   if (!GuestInfo_GetNicInfo(maxIPv4RoutesToGather,
+                             maxIPv6RoutesToGather,
+                             &nicInfo)) {
       g_warning("Failed to get nic info.\n");
       /*
        * Return an empty nic info.
@@ -1700,7 +1780,7 @@ GuestInfoServerShutdown(gpointer src,
       gatherStatsTimeoutSource = NULL;
    }
 
-#if !defined(__APPLE__)
+#if defined(__linux__) || defined(USERWORLD) || defined(_WIN32)
    GuestInfo_StatProviderShutdown();
 #endif
 

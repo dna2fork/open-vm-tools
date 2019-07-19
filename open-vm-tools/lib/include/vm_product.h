@@ -1,5 +1,5 @@
 /*********************************************************
- * Copyright (C) 2006-2017 VMware, Inc. All rights reserved.
+ * Copyright (C) 2006-2018 VMware, Inc. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify it
  * under the terms of the GNU Lesser General Public License as published
@@ -60,6 +60,7 @@
  */
 #define PRODUCT_SCALABLE_SERVER_BRIEF_NAME "ESX"
 #define PRODUCT_ESXI_BRIEF_NAME "ESXi"
+#define PRODUCT_VMVISOR_BRIEF_NAME PRODUCT_ESXI_BRIEF_NAME 
 #define PRODUCT_WORKSTATION_BRIEF_NAME "Workstation"
 #define PRODUCT_WORKSTATION_SERVER_BRIEF_NAME "Workstation Server"
 #define PRODUCT_PLAYER_BRIEF_NAME "Player"
@@ -77,8 +78,11 @@
  * This name should be used when referring to VMware Tools
  */
 #define VMWARE_TOOLS_SHORT_NAME MAKE_NAME("Tools")
+#define VMWARE_VGAUTH_SHORT_NAME MAKE_NAME("Guest Authentication")
 
 #define PRODUCT_SCALABLE_SERVER_NAME MAKE_NAME(PRODUCT_SCALABLE_SERVER_BRIEF_NAME)
+#define PRODUCT_ESXI_NAME MAKE_NAME(PRODUCT_ESXI_BRIEF_NAME)
+#define PRODUCT_VMVISOR_NAME PRODUCT_ESXI_NAME
 #define PRODUCT_WORKSTATION_NAME MAKE_NAME(PRODUCT_WORKSTATION_BRIEF_NAME)
 #define PRODUCT_WORKSTATION_SERVER_NAME MAKE_NAME(PRODUCT_WORKSTATION_SERVER_BRIEF_NAME)
 #define PRODUCT_CONSOLE_NAME MAKE_NAME("Server Console")
@@ -149,12 +153,6 @@
 
 #define PRODUCT_VMCF_NAME MAKE_NAME("VMCF")
 
-// XXX VMvisor is the underlying technology for possibly several products,
-// XXX not the product. Fix when names are decided.
-// #define PRODUCT_VMVISOR_NAME MAKE_NAME("VMvisor")
-// XXX Only one product for now so just hardcode it.
-#define PRODUCT_VMVISOR_NAME MAKE_NAME(PRODUCT_SCALABLE_SERVER_BRIEF_NAME "i")
-
 #if defined(__linux__) || defined(__FreeBSD__)
 #define PRODUCT_NETDUMP_NAME PRODUCT_GENERIC_NAME_LOWER "-netdumper"
 #else
@@ -204,7 +202,7 @@
       || defined(VMX86_VMCF) \
       || defined(VMX86_GANTRY) \
       || defined(VMX86_VMRC))
-#   if defined(_WIN32) || defined(__APPLE__)
+#   if defined(_WIN32) || defined(__APPLE__) || defined(__linux__)
       /*
        * XXX Make the product be Workstation by default if none of the defines
        * XXX above are not defined in defs-globaldefs.mk -- Edward A. Waugh
@@ -216,16 +214,16 @@
 #endif
 
 
-#if defined(VMVISOR)
-# define PRODUCT_SHORT_NAME PRODUCT_VMVISOR_NAME
-#elif defined(VMX86_SERVER)
-# define PRODUCT_SHORT_NAME PRODUCT_SCALABLE_SERVER_NAME
+#if defined(VMX86_SERVER)
+# define PRODUCT_SHORT_NAME PRODUCT_ESXI_NAME
 #elif defined(VMX86_VMRC) /* check VMX86_VMRC before VMX86_DESKTOP */
 # define PRODUCT_SHORT_NAME PRODUCT_VMRC_NAME
 #elif defined(VMX86_GANTRY)
 # define PRODUCT_SHORT_NAME PRODUCT_GANTRY_NAME
 #elif defined(VMX86_TOOLS)
 # define PRODUCT_SHORT_NAME VMWARE_TOOLS_SHORT_NAME
+#elif defined(VMX86_VGAUTH)
+# define PRODUCT_SHORT_NAME VMWARE_VGAUTH_SHORT_NAME
 #elif defined(VMX86_VPX)
 #  if defined(CSI_HA)
 #     define PRODUCT_SHORT_NAME PRODUCT_HA_NAME
